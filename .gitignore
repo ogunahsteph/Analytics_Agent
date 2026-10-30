@@ -1,0 +1,14 @@
+.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+credentials/
+secrets/
+*credentials*.json
+*key*.json
+data/
+exports/
+*.csv
+*.parquet
