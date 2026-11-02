@@ -1,0 +1,137 @@
+name: transaction_new
+table_id: southwell-infra.Odibets_Raw.odibets_transaction_new
+
+purpose: >
+  Combined transaction ledger for Odi Kenya sportsbook, casino,
+  virtual games, and wallet activity. Includes stakes, settlements,
+  deposits, withdrawals, reversals, bonuses, and other transaction types.
+
+grain: >
+  One raw record represents a version of a transaction.
+  Multiple records may exist for the same transaction_id.
+
+columns:
+  transaction_id:
+    type: INT64
+    meaning: Unique transaction identifier across its versions.
+    usage: Deduplication key.
+
+  profile_id:
+    type: INT64
+    meaning: Bettor identifier.
+
+  reference_id:
+    type: INT64
+    meaning: Identifier of the originating record, such as a sportsbook bet.
+    cautions:
+      - Related transactions may share this identifier.
+      - Never use it as the transaction deduplication key.
+      - Do not join across providers using reference_id alone.
+
+  reference_type_id:
+    type: INT64
+    meaning: Reference classification.
+    cautions:
+      - Business mappings have not yet been documented.
+
+  created_by:
+    type: STRING
+    meaning: Transaction source or classification.
+    usage: Interpret together with channel_id.
+
+  channel_id:
+    type: STRING
+    meaning: Additional transaction source or classification.
+    usage: Interpret together with created_by.
+
+  amount:
+    type: STRING
+    meaning: Amount associated with the transaction.
+    numeric_expression: SAFE_CAST(amount AS NUMERIC)
+    cautions:
+      - Sign conventions depend on transaction type.
+      - Use user-supplied or verified conventions.
+      - Report failed conversions; do not silently replace them with zero.
+      - Apply ABS only when the requested metric requires it.
+
+  running_balance:
+    type: NUMERIC
+    meaning: Wallet balance immediately after the transaction.
+    cautions:
+      - Not an additive transaction amount.
+      - Do not sum balances to calculate money movement.
+
+   # created:
+  #   type: DATETIME
+  #   meaning: Transaction creation date and time.
+  #   timezone_status: >
+  #     Nairobi local time has been used for specific requests.
+  #     Confirm before establishing it as a universal source convention.
+  created:
+    type: DATETIME
+    meaning: Transaction creation date and time in Nairobi local time.
+    timezone: Africa/Nairobi
+    rules:
+      - Compare directly with Nairobi local DATETIME boundaries.
+      - Do not convert created from UTC or add three hours.
+
+  modified:
+    type: TIMESTAMP
+    meaning: Transaction modification time.
+    usage: Select the latest transaction version.
+
+  _PARTITIONTIME:
+    type: TIMESTAMP
+    meaning: Ingestion partition time in UTC.
+    usage: Reduce scanning through partition filters.
+    cautions:
+      - Not the transaction creation time.
+      - Recently streamed records may have a NULL partition value.
+
+  datastream_metadata:
+    type: STRUCT
+    meaning: Technical streaming metadata.
+    usage: Exclude from business analysis and ordinary transaction exports.
+
+deduplication:
+  key: transaction_id
+  order_by: modified DESC
+  expression: |
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY transaction_id
+      ORDER BY modified DESC
+    ) = 1
+  rules:
+    - Apply ingestion partition filters before deduplication.
+    - Apply transaction-type filters and aggregations after deduplication.
+    - Do not invent a tie-breaker for conflicting versions with equal modified.
+    - Filters must not silently exclude versions required for latest-state analysis.
+
+time_filtering:
+  business_timezone: Africa/Nairobi
+  transaction_time_column: created
+  rules:
+    - Interpret relative dates using Africa/Nairobi.
+    - Use start-inclusive and end-exclusive transaction-time boundaries.
+    - Include bounded ingestion partition conditions.
+    - Align partition boundaries with the table's actual partition granularity.
+    - Convert Nairobi boundaries to UTC TIMESTAMP values where appropriate.
+    - Parenthesize partition conditions together with OR _PARTITIONTIME IS NULL.
+    - Do not assume an ingestion window guarantees complete historical coverage.
+    - Do not invent an ingestion lookback when late-arrival behaviour is unknown.
+
+classification:
+  rules:
+    - Labels can identify transaction types in either created_by or channel_id.
+    - Honour the user's specified columns, labels, and fallback behaviour.
+    - Do not use COALESCE as a substitute for searching label values.
+    - Do not assume every transaction is a stake or settlement.
+    - Do not assume ledger withdrawals alone prove successful payment delivery.
+
+relationships:
+  - >
+    reference_id may link to an originating game record, but join keys
+    and cardinality must be verified separately for each source.
+  - >
+    Related stakes and settlements may occur on different dates.
+    Same-day totals are period activity, not necessarily matched-bet returns.

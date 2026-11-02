@@ -1,0 +1,2 @@
+[console_scripts]
+odi-agent = odi_agent.cli:main
