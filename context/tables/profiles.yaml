@@ -1,0 +1,122 @@
+name: profiles
+table_id: southwell-infra.Odibets_Raw.odibets_profile
+
+purpose: >
+  Bettor profile information, primarily used to retrieve MSISDNs,
+  registration details, registration source, and time on the platform.
+
+grain: >
+  A raw row represents a version of a bettor profile.
+  Deduplicate before analysis or joining to other tables.
+
+columns:
+  profile_id:
+    type: INT64
+    meaning: Bettor identifier.
+    usage: Deduplication key and join key to transaction_new.
+
+  msisdn:
+    type: STRING
+    meaning: Bettor phone number.
+    rules:
+      - Preserve as a string, including its stored prefix and leading zeros.
+      - Do not invent formatting or country-code conversions.
+      - Include when requested or necessary for the task.
+
+  first_name:
+    type: STRING
+    meaning: Bettor first name.
+
+  middle_name:
+    type: STRING
+    meaning: Bettor middle name; may be NULL.
+
+  last_name:
+    type: STRING
+    meaning: Bettor last name.
+
+  created_by:
+    type: STRING
+    meaning: Platform or source through which the bettor registered.
+    examples:
+      - WEB
+    cautions:
+      - Do not confuse with transaction_new.created_by,
+        which classifies transaction activity.
+
+  created:
+    type: DATETIME
+    meaning: Registration date and time in Nairobi local time.
+    timezone: Africa/Nairobi
+    rules:
+      - DATE(created) gives the local registration date.
+      - Compare directly with Nairobi local DATETIME boundaries.
+      - Do not interpret as UTC or add three hours.
+
+  modified:
+    type: TIMESTAMP
+    meaning: Profile modification timestamp in UTC.
+    usage: Select the latest profile version.
+
+  _PARTITIONTIME:
+    type: TIMESTAMP
+    meaning: Ingestion partition time in UTC.
+    cautions:
+      - Not the registration date.
+      - Recently streamed records may have a NULL partition value.
+
+  datastream_metadata:
+    type: STRUCT
+    meaning: Technical streaming metadata.
+    usage: Exclude from business analysis and ordinary profile exports.
+
+excluded_from_current_context:
+  - status
+  - network
+
+deduplication:
+  key: profile_id
+  order_by: modified DESC
+  expression: |
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY profile_id
+      ORDER BY modified DESC
+    ) = 1
+  rules:
+    - Select the latest profile version before joining.
+    - Do not deduplicate by msisdn.
+    - Do not invent a tie-breaker for conflicting versions
+      with equal modified timestamps.
+
+relationships:
+  transaction_new:
+    table_id: southwell-infra.Odibets_Raw.odibets_transaction_new
+    join_condition: transaction_new.profile_id = profiles.profile_id
+    expected_cardinality: >
+      Many deduplicated transactions to one deduplicated profile.
+    rules:
+      - Deduplicate both tables before joining.
+      - Use LEFT JOIN when enriching transactions so missing profiles
+        do not silently remove transaction records.
+      - Return NULL for missing profile details; do not invent values.
+      - Qualify ambiguous columns using table aliases.
+
+analysis_rules:
+  - Use this table as the source of bettor MSISDN and registration details.
+  - Time on the platform means account tenure, not the person's age.
+  - Specify whether tenure is measured as of today or a historical date.
+  - For tenure in days, calculate the difference between the chosen
+    reference date and DATE(created).
+  - Preserve one row per profile when preparing profile enrichment.
+  - Do not assume msisdn is unique across different profile IDs.
+  - Avoid selecting names and other personal details unless needed.
+
+partition_and_lookup_rules:
+  - Do not apply the transaction reporting period to profile registration
+    dates or profile ingestion partitions merely because the tables join.
+  - A bettor transacting today may have registered years earlier.
+  - Recent ingestion partitions alone do not provide complete profile coverage.
+  - Use an agreed historical ingestion range or a complete maintained
+    profile snapshot for enrichment.
+  - Do not invent an ingestion cutoff that could exclude older profiles.
+  - Apply query cost controls and disclose unresolved lookup coverage.

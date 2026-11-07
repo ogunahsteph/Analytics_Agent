@@ -1,0 +1,169 @@
+name: sportsbook_bet_slip
+table_id: southwell-infra.matchesodi.bet_slip
+
+purpose: >
+  Individual sportsbook selections belonging to a bet.
+  A single bet may contain one or many selections.
+
+grain: >
+  One selection per bet_slip_id after deduplication.
+
+columns:
+  bet_slip_id:
+    type: INT64
+    meaning: Primary identifier of an individual selection.
+    usage: Deduplication key.
+
+  bet_id:
+    type: INT64
+    meaning: Parent bet identifier matching bet.bet_id.
+    cautions:
+      - Repeats when several selections belong to the same bet.
+      - Do not deduplicate selections by bet_id.
+
+  profile_id:
+    type: INT64
+    meaning: Bettor identifier.
+
+  parent_match_id:
+    type: INT64
+    meaning: Logical match identifier.
+    usage: Join to matches.parent_match_id after match deduplication.
+
+  sub_type_id:
+    type: INT64
+    meaning: Betting market identifier.
+    usage: Future join to market definitions once documented.
+
+  outcome_id:
+    type: STRING
+    meaning: Identifier of the selected outcome.
+
+  outcome_name:
+    type: STRING
+    meaning: Name of the selected outcome within the market.
+
+  specifiers:
+    type: STRING
+    meaning: Additional selection or market specification.
+    cautions:
+      - Format and interpretation are not yet documented.
+
+  total_games:
+    type: INT64
+    meaning: Exact meaning in this selection table is unconfirmed.
+    cautions:
+      - Do not sum it to count selections.
+      - Count deduplicated bet_slip_id values instead.
+
+  odd_value:
+    type: NUMERIC(10, 2)
+    meaning: Odds associated with this individual selection.
+
+  status:
+    type: INT64
+    meaning: >
+      Status associated with the selection or match, such as
+      not yet started or ended.
+    rules:
+      - Numeric status-code meanings are not yet supplied.
+      - Do not assume these codes equal bet-level status codes.
+      - Do not infer won or lost from undocumented codes.
+
+  live_bet:
+    type: INT64
+    meaning: >
+      Boolean indicator of whether the selection was placed after
+      the match had already begun.
+    rules:
+      - Yes means live; no means not live.
+      - Numeric encoding has not yet been confirmed.
+      - Do not infer live status from the current match state.
+
+  created:
+    type: DATETIME
+    meaning: Selection creation time in Nairobi local time.
+    timezone: Africa/Nairobi
+
+  modified:
+    type: TIMESTAMP
+    meaning: Selection modification timestamp represented in UTC.
+
+  datastream_metadata:
+    type: STRUCT
+    meaning: Technical streaming metadata.
+    usage: Exclude from business analysis and ordinary exports.
+
+excluded_from_current_context:
+  - winning_outcome
+
+deduplication:
+  key: bet_slip_id
+  order_by: modified DESC
+  expression: |
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY bet_slip_id
+      ORDER BY modified DESC
+    ) = 1
+  rules:
+    - Deduplicate before joins, counting, or aggregation.
+    - Apply mutable status filters after deduplication.
+    - Do not invent tie-breakers for conflicting equal modified timestamps.
+
+relationships:
+  bet:
+    table_id: southwell-infra.matchesodi.bet
+    join_condition: bet_slip.bet_id = bet.bet_id
+    cardinality: Many selections to one logical bet.
+    rules:
+      - Deduplicate both tables before joining.
+      - A selection-level join repeats bet_amount and other bet-level values.
+      - Do not sum repeated bet_amount to calculate total stakes.
+      - Use EXISTS when filtering bets by selection attributes without
+        needing selection-level output.
+      - Do not use SUM(DISTINCT bet_amount) to correct join duplication.
+      - One bet may qualify for several matches or markets, so stakes
+        reported by those groups may overlap.
+      - Stake allocation across selections requires an explicit business rule.
+
+  profiles:
+    table_id: southwell-infra.Odibets_Raw.odibets_profile
+    join_condition: bet_slip.profile_id = profiles.profile_id
+    rules:
+      - Deduplicate profiles before enrichment.
+      - Preserve unmatched selections when enrichment is requested.
+
+  matches:
+    table_id: southwell-infra.matches.odi_bets_matche
+    join_condition: bet_slip.parent_match_id = matches.parent_match_id
+    cardinality: Many selections to one deduplicated logical match.
+    rules:
+      - Deduplicate matches by parent_match_id using latest modified.
+      - Ignore match_id for current analysis.
+      - Different match_id values under one parent_match_id do not
+        constitute an ambiguity under the confirmed business rule.
+      - Do not run distinct-match_id ambiguity checks.
+      - Deduplicate selections by bet_slip_id before joining.
+      - Use LEFT JOIN when enriching selections to preserve unmatched rows.
+      - Match enrichment must not multiply selection rows.
+      - Do not filter match-record creation to the bet-placement period.
+
+  markets:
+    key: sub_type_id
+    status: Table and join details not yet supplied.
+
+partitioning:
+  status: No partition column appeared in the supplied schema.
+  rules:
+    - Do not reference _PARTITIONTIME for this table.
+    - Do not assume partitioning rules from the bet table apply here.
+    - Use dry-run estimates and the configured billing cap.
+
+time_filtering:
+  business_timezone: Africa/Nairobi
+  time_column: created
+  rules:
+    - Compare created directly with local DATETIME boundaries.
+    - Use start-inclusive and end-exclusive intervals.
+    - Do not treat modified as match end time or settlement time.
+    - Ensure time filters do not silently exclude required record versions.

@@ -1,0 +1,155 @@
+name: deposits
+table_id: southwell-infra.Odibets_Raw.odibets_mpesa_transaction
+
+purpose: >
+  Successful M-Pesa deposit transactions. Use this table for successful
+  payment deposits; it does not contain failed deposit attempts.
+
+grain: >
+  One raw row represents a version of a deposit transaction.
+  Deduplicate before analysis or joins.
+
+columns:
+  id:
+    type: INT64
+    meaning: Deposit record identifier.
+    usage: Deduplication key.
+
+  msisdn:
+    type: INT64
+    meaning: Depositor phone number.
+    rules:
+      - CAST(msisdn AS STRING) matches profiles.msisdn.
+      - Do not invent prefix changes or other phone normalization.
+
+  transaction_time:
+    type: DATETIME
+    meaning: Deposit transaction time in Nairobi local time.
+    timezone: Africa/Nairobi
+    usage: Default reporting date and time for deposit analysis.
+
+  account_no:
+    type: STRING
+    meaning: Payment account reference.
+    cautions:
+      - Do not assume it is a profile_id or transaction_id.
+
+  mpesa_code:
+    type: STRING
+    meaning: M-Pesa transaction reference.
+    cautions:
+      - Do not use as a join key to other tables without verification.
+
+  mpesa_amt:
+    type: STRING
+    meaning: Successful deposit amount.
+    numeric_expression: SAFE_CAST(mpesa_amt AS NUMERIC)
+    rules:
+      - Report failed conversions rather than silently replacing with zero.
+      - Do not apply ABS unless required by the requested metric.
+
+  mpesa_sender:
+    type: STRING
+    meaning: M-Pesa sender information.
+    cautions:
+      - Contains personal information; include only when needed.
+
+  business_number:
+    type: INT64
+    meaning: Payment business number.
+
+  org_balance:
+    type: STRING
+    meaning: Organisation balance field; detailed definition unconfirmed.
+    cautions:
+      - Not the deposit amount or bettor wallet balance.
+      - Do not sum to calculate deposits.
+
+  created:
+    type: DATETIME
+    meaning: Record creation time in Nairobi local time.
+    timezone: Africa/Nairobi
+    cautions:
+      - Distinct from transaction_time.
+      - Use transaction_time for deposit reporting unless instructed otherwise.
+
+  modified:
+    type: TIMESTAMP
+    meaning: Record modification timestamp represented in UTC.
+    usage: Select the latest deposit record version.
+
+  middle_name:
+    type: STRING
+    meaning: Name field; detailed source meaning unconfirmed.
+    cautions:
+      - Do not assume this identifies the registered bettor.
+
+  _PARTITIONTIME:
+    type: TIMESTAMP
+    meaning: Ingestion partition time in UTC.
+    cautions:
+      - Not the deposit transaction time.
+      - Recently streamed rows may have a NULL partition value.
+
+  datastream_metadata:
+    type: STRUCT
+    meaning: Technical streaming metadata.
+    usage: Exclude from business analysis and ordinary exports.
+
+deduplication:
+  key: id
+  order_by: modified DESC
+  expression: |
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY id
+      ORDER BY modified DESC
+    ) = 1
+  rules:
+    - Deduplicate before analysis or joins.
+    - Do not deduplicate by msisdn; one depositor can have many deposits.
+    - Do not invent tie-breakers for conflicting versions with equal modified.
+
+relationships:
+  profiles:
+    table_id: southwell-infra.Odibets_Raw.odibets_profile
+    join_condition: CAST(deposits.msisdn AS STRING) = profiles.msisdn
+    provides:
+      - profile_id
+      - Registration details
+    rules:
+      - Deduplicate profiles by profile_id before joining.
+      - MSISDN uniqueness across profiles is not guaranteed.
+      - Check for multiple profile matches before attributing deposits.
+      - Do not silently choose a profile or multiply deposit totals.
+      - Preserve unmatched deposits when enriching successful payment records.
+
+  transaction_new:
+    table_id: southwell-infra.Odibets_Raw.odibets_transaction_new
+    rules:
+      - No transaction-level deposit-to-ledger join key is verified.
+      - Obtain profile_id directly from profiles; the ledger is not needed.
+      - To retrieve ledger activity for an MSISDN, resolve profile_id through
+        profiles, then filter transaction_new by those profile IDs.
+      - Use EXISTS or a distinct profile-ID set to avoid multiplying ledger rows.
+      - Do not join every deposit row to every ledger row for the same bettor.
+      - For comparisons, aggregate each source to the same requested grain
+        before joining summaries.
+
+time_filtering:
+  business_timezone: Africa/Nairobi
+  transaction_time_column: transaction_time
+  rules:
+    - Compare directly with Nairobi local DATETIME boundaries.
+    - Use start-inclusive and end-exclusive intervals.
+    - Apply bounded UTC ingestion partition filters before deduplication.
+    - Align partition bounds with the actual partition granularity.
+    - Parenthesize partition conditions together with OR _PARTITIONTIME IS NULL.
+    - Account for later-arriving records and updates.
+    - Do not apply deposit reporting dates to profile ingestion partitions.
+    - Disclose unresolved historical coverage limitations.
+
+analysis_rules:
+  - All records represent successful deposits; no success-status filter is needed.
+  - This table cannot measure failed attempts or deposit success rates alone.
+  - Do not assume sender identity always equals the registered bettor.
+  - Describe profile details as current/latest, not necessarily as-of-deposit.

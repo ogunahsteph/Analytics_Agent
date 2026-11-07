@@ -1,0 +1,197 @@
+{
+  "request_id": "59de0f0082fb47b0b6dbd0a25214b867",
+  "thread_id": "69d0ecb926de4e5b86d5be9ae242e35e",
+  "error": "Recursion limit of 12 reached without hitting a stop condition. You can increase the limit by setting the `recursion_limit` config key.\nFor troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT",
+  "messages": [
+    {
+      "type": "user",
+      "content": "I wanna know what percent of live bets of total bets placed on 6th Nov 2026"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "SELECT\n  live_bet,\n  COUNT(*) AS cnt\nFROM `southwell-infra.matchesodi.bet_slip`\nWHERE created >= DATETIME '2026-11-06 00:00:00'\n  AND created < DATETIME '2026-11-07 00:00:00'\nGROUP BY live_bet\n"
+          },
+          "id": "call_5552908125557423720",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 30677,
+        "output_tokens": 577,
+        "total_tokens": 31254,
+        "input_token_details": {
+          "cache_read": 27972
+        },
+        "output_token_details": {
+          "reasoning": 471
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_5552908125557423720",
+      "content": "{\"result_id\": \"4d9927616ee9400b87dea1799ee15531\", \"row_count\": 2, \"columns\": [\"live_bet\", \"cnt\"], \"preview_rows\": [{\"live_bet\": 1, \"cnt\": 519942}, {\"live_bet\": 0, \"cnt\": 5684564}], \"preview_is_partial\": false, \"bytes_processed\": 192742192, \"bytes_billed\": 192937984}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "WITH bet_live_status AS (\n  SELECT\n    bet_id,\n    COUNTIF(live_bet = 1) AS live_count,\n    COUNTIF(live_bet = 0) AS prematch_count,\n    COUNT(*) AS total_selections\n  FROM `southwell-infra.matchesodi.bet_slip`\n  WHERE created >= DATETIME '2026-11-06 00:00:00'\n    AND created < DATETIME '2026-11-07 00:00:00'\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_slip_id\n    ORDER BY modified DESC\n  ) = 1\n  GROUP BY bet_id\n)\nSELECT\n  COUNTIF(live_count > 0 AND prematch_count = 0) AS pure_live_bets,\n  COUNTIF(live_count = 0 AND prematch_count > 0) AS pure_prematch_bets,\n  COUNTIF(live_count > 0 AND prematch_count > 0) AS mixed_bets,\n  COUNT(*) AS total_bets_with_slips\nFROM bet_live_status\n"
+          },
+          "id": "call_14857854442047392898",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 31351,
+        "output_tokens": 427,
+        "total_tokens": 31778,
+        "input_token_details": {
+          "cache_read": 27946
+        },
+        "output_token_details": {
+          "reasoning": 134
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_14857854442047392898",
+      "content": "{\"error\": \"400 POST https://bigquery.googleapis.com/bigquery/v2/projects/southwell-infra/jobs?prettyPrint=false: Syntax error: Expected \\\")\\\" but got keyword GROUP at [14:3]\\n\\nLocation: None\\nJob ID: fb3add7f-ae79-4dd0-89b9-a249845edb20\\n\"}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "WITH deduped_slips AS (\n  SELECT\n    bet_id,\n    live_bet\n  FROM `southwell-infra.matchesodi.bet_slip`\n  WHERE created >= DATETIME '2026-11-06 00:00:00'\n    AND created < DATETIME '2026-11-07 00:00:00'\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_slip_id\n    ORDER BY modified DESC\n  ) = 1\n),\nbet_live_status AS (\n  SELECT\n    bet_id,\n    COUNTIF(live_bet = 1) AS live_count,\n    COUNTIF(live_bet = 0) AS prematch_count,\n    COUNT(*) AS total_selections\n  FROM deduped_slips\n  GROUP BY bet_id\n)\nSELECT\n  COUNTIF(live_count > 0 AND prematch_count = 0) AS pure_live_bets,\n  COUNTIF(live_count = 0 AND prematch_count > 0) AS pure_prematch_bets,\n  COUNTIF(live_count > 0 AND prematch_count > 0) AS mixed_bets,\n  COUNT(*) AS total_bets_with_slips\nFROM bet_live_status\n"
+          },
+          "id": "call_13940663435082777192",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 31868,
+        "output_tokens": 364,
+        "total_tokens": 32232,
+        "input_token_details": {
+          "cache_read": 27939
+        },
+        "output_token_details": {
+          "reasoning": 37
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_13940663435082777192",
+      "content": "{\"result_id\": \"483dba2f4d5d480bb716ecb99405d91b\", \"row_count\": 1, \"columns\": [\"pure_live_bets\", \"pure_prematch_bets\", \"mixed_bets\", \"total_bets_with_slips\"], \"preview_rows\": [{\"pure_live_bets\": 84307, \"pure_prematch_bets\": 853437, \"mixed_bets\": 31971, \"total_bets_with_slips\": 969715}], \"preview_is_partial\": false, \"bytes_processed\": 481855480, \"bytes_billed\": 482344960}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "SELECT\n  COUNT(*) AS total_deduped_bets\nFROM `southwell-infra.matchesodi.bet`\nWHERE created >= DATETIME '2026-11-06 00:00:00'\n  AND created < DATETIME '2026-11-07 00:00:00'\n  AND (\n    _PARTITIONTIME >= TIMESTAMP('2026-11-05 00:00:00', 'UTC')\n    AND _PARTITIONTIME < TIMESTAMP('2026-11-08 00:00:00', 'UTC')\n    OR _PARTITIONTIME IS NULL\n  )\nQUALIFY ROW_NUMBER() OVER (\n  PARTITION BY bet_id\n  ORDER BY modified DESC\n) = 1\n"
+          },
+          "id": "call_16964008863083986941",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 32368,
+        "output_tokens": 345,
+        "total_tokens": 32713,
+        "input_token_details": {
+          "cache_read": 27905
+        },
+        "output_token_details": {
+          "reasoning": 138
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_16964008863083986941",
+      "content": "{\"error\": \"400 POST https://bigquery.googleapis.com/bigquery/v2/projects/southwell-infra/jobs?prettyPrint=false: PARTITION BY expression references column bet_id which is neither grouped nor aggregated at [12:16]\\n\\nLocation: None\\nJob ID: e3b31e20-6aba-4710-8091-88d67badce72\\n\"}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "WITH deduped_bets AS (\n  SELECT bet_id\n  FROM `southwell-infra.matchesodi.bet`\n  WHERE created >= DATETIME '2026-11-06 00:00:00'\n    AND created < DATETIME '2026-11-07 00:00:00'\n    AND (\n      _PARTITIONTIME >= TIMESTAMP('2026-11-05 00:00:00', 'UTC')\n      AND _PARTITIONTIME < TIMESTAMP('2026-11-08 00:00:00', 'UTC')\n      OR _PARTITIONTIME IS NULL\n    )\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_id\n    ORDER BY modified DESC\n  ) = 1\n)\nSELECT COUNT(*) AS total_bets FROM deduped_bets\n"
+          },
+          "id": "call_2037582145755059734",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 32811,
+        "output_tokens": 478,
+        "total_tokens": 33289,
+        "input_token_details": {
+          "cache_read": 27897
+        },
+        "output_token_details": {
+          "reasoning": 250
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_2037582145755059734",
+      "content": "{\"result_id\": \"6970d62152cd479eba9a2a66814c6181\", \"row_count\": 1, \"columns\": [\"total_bets\"], \"preview_rows\": [{\"total_bets\": 989586}], \"preview_is_partial\": false, \"bytes_processed\": 86155008, \"bytes_billed\": 87031808}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "WITH deduped_bets AS (\n  SELECT\n    bet_id\n  FROM `southwell-infra.matchesodi.bet`\n  WHERE created >= DATETIME '2026-11-06 00:00:00'\n    AND created < DATETIME '2026-11-07 00:00:00'\n    AND (\n      _PARTITIONTIME >= TIMESTAMP('2026-11-05 00:00:00', 'UTC')\n      AND _PARTITIONTIME < TIMESTAMP('2026-11-08 00:00:00', 'UTC')\n      OR _PARTITIONTIME IS NULL\n    )\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_id\n    ORDER BY modified DESC\n  ) = 1\n),\ndeduped_slips AS (\n  SELECT\n    bet_id,\n    live_bet\n  FROM `southwell-infra.matchesodi.bet_slip`\n  WHERE bet_id IN (SELECT bet_id FROM deduped_bets)\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_slip_id\n    ORDER BY modified DESC\n  ) = 1\n),\nbet_summary AS (\n  SELECT\n    b.bet_id,\n    COUNT(s.live_bet) AS total_selections,\n    COUNTIF(s.live_bet = 1) AS live_selections,\n    COUNTIF(s.live_bet = 0) AS prematch_selections\n  FROM deduped_bets b\n  LEFT JOIN deduped_slips s ON b.bet_id = s.bet_id\n  GROUP BY b.bet_id\n)\nSELECT\n  COUNT(*) AS total_bets,\n  COUNTIF(live_selections > 0) AS any_live_bets,\n  ROUND(COUNTIF(live_selections > 0) * 100.0 / COUNT(*), 2) AS any_live_pct,\n  COUNTIF(live_selections > 0 AND prematch_selections = 0) AS pure_live_bets,\n  ROUND(COUNTIF(live_selections > 0 AND prematch_selections = 0) * 100.0 / COUNT(*), 2) AS pure_live_pct,\n  COUNTIF(live_selections > 0 AND prematch_selections > 0) AS mixed_bets,\n  ROUND(COUNTIF(live_selections > 0 AND prematch_selections > 0) * 100.0 / COUNT(*), 2) AS mixed_pct,\n  COUNTIF(live_selections = 0 AND prematch_selections > 0) AS pre_match_bets,\n  ROUND(COUNTIF(live_selections = 0 AND prematch_selections > 0) * 100.0 / COUNT(*), 2) AS pre_match_pct,\n  COUNTIF(total_selections = 0) AS bets_without_selections,\n  ROUND(COUNTIF(total_selections = 0) * 100.0 / COUNT(*), 2) AS bets_without_selections_pct\nFROM bet_summary\n"
+          },
+          "id": "call_5525660910459946603",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 33370,
+        "output_tokens": 1295,
+        "total_tokens": 34665,
+        "input_token_details": {
+          "cache_read": 27879
+        },
+        "output_token_details": {
+          "reasoning": 522
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_5525660910459946603",
+      "content": "{\"status\": \"cancelled\", \"executed\": false, \"reason\": \"The user did not approve the query.\", \"estimated_gb\": 289.384, \"instruction\": \"Report the cancellation and stop. Do not retry or submit an alternative query unless the user requests it.\"}"
+    }
+  ]
+}

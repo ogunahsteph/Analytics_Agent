@@ -1,0 +1,220 @@
+name: matches
+table_id: southwell-infra.matches.odi_bets_matche
+
+purpose: >
+  Sportsbook match information, including teams, competition, sport,
+  scheduled kickoff, and match state.
+
+grain: >
+  One logical match per parent_match_id after deduplication.
+  Records may be updated, including changes to scheduled kickoff.
+
+columns:
+  parent_match_id:
+    type: INT64
+    meaning: Logical match identifier used to connect sportsbook selections.
+    usage: Deduplication key and join to bet_slip.parent_match_id.
+
+  match_id:
+    type: INT64
+    meaning: Redundant record identifier for current analytical purposes.
+    rules:
+      - Exclude from ordinary analysis and exports unless explicitly requested.
+      - Do not use for deduplication or joins.
+      - Different match_id values under one parent_match_id do not
+        constitute an ambiguity under the confirmed business rule.
+
+  home_team:
+    type: STRING
+    meaning: Home team or participant name.
+
+  away_team:
+    type: STRING
+    meaning: Away team or participant name.
+
+  start_time:
+    type: DATETIME
+    meaning: Current scheduled match start time.
+    timezone: Africa/Nairobi
+    rules:
+      - May change when a match is postponed or rescheduled.
+      - Filter after deduplication to use the current scheduled time.
+      - Scheduled kickoff does not prove the match actually started or ended.
+
+  competition_id:
+    type: INT64
+    meaning: Competition identifier.
+
+  competition_name:
+    type: STRING
+    meaning: Competition name.
+
+  category_id:
+    type: INT64
+    meaning: Category identifier; classification details unconfirmed.
+
+  category_name:
+    type: STRING
+    meaning: Category name.
+
+  country_id:
+    type: STRING
+    meaning: Country identifier.
+
+  country_name:
+    type: STRING
+    meaning: Country name associated with the match classification.
+
+  sport_id:
+    type: INT64
+    meaning: Sport identifier.
+
+  sport_name:
+    type: STRING
+    meaning: Sport name.
+
+  sport_type_id:
+    type: INT64
+    meaning: Sport-type identifier; detailed classification unconfirmed.
+
+  sport_type_name:
+    type: STRING
+    meaning: Sport-type name.
+
+  result:
+    type: STRING
+    meaning: Match result field.
+    cautions:
+      - Format and finality rules are not yet documented.
+      - Do not assume its presence means a final result.
+
+  status:
+    type: INT64
+    meaning: Match status code.
+    rules:
+      - Numeric mappings are not yet documented.
+      - Do not reuse bet or betslip status mappings.
+
+  status_desc:
+    type: STRING
+    meaning: Textual match-status description.
+
+  created:
+    type: DATETIME
+    meaning: Match-record creation time in Nairobi local time.
+    timezone: Africa/Nairobi
+    rules:
+      - A record can be created weeks before scheduled kickoff.
+      - Do not use as the match-start date.
+
+  modified:
+    type: TIMESTAMP
+    meaning: Record modification time, represented in UTC.
+    usage: Select the most up-to-date version per parent_match_id.
+
+  live_timestamp:
+    type: TIMESTAMP
+    meaning: Live-related timestamp; exact business meaning unconfirmed.
+    cautions:
+      - Do not assume it is actual kickoff or settlement time.
+
+  datastream_metadata:
+    type: STRUCT
+    meaning: Technical streaming metadata.
+    usage: Exclude from business analysis and ordinary exports.
+
+other_columns:
+  - periodic_time
+  - game_id
+  - c_priority
+  - c_binomen
+  - t_priority
+  - t_binomen
+  - cat_priority
+  - ct_priority
+  - s_binomen
+  - s_priority
+  - extra_time
+  - p_scores
+  - b_status
+  - l_status
+  - priority
+  - prioritize
+  - sms_priority
+  - live_coverage
+  - side_bets
+  - active_outcomes
+  - markets_string
+  - boosted
+  - boosted_text
+  - b_placed
+  - b_won
+  - b_lost
+  - bc_cancelled
+  - bs_cancelled
+  - b_voided
+  - b_invalid
+  - video_coverage
+
+other_column_rules:
+  - Detailed business definitions are not yet documented.
+  - Do not interpret b_placed, b_won, or similar fields as verified
+    stake totals, payout totals, or bet counts.
+
+deduplication:
+  key: parent_match_id
+  order_by: modified DESC
+  expression: |
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY parent_match_id
+      ORDER BY modified DESC
+    ) = 1
+  rules:
+    - Retain the latest modified row for each parent_match_id,
+      regardless of match_id.
+    - Deduplicate before filtering mutable fields such as start_time or status.
+    - Latest modified represents current state, not historical state.
+    - Do not invent tie-breakers for conflicting equal modified timestamps.
+    - Do not group by or count distinct match_id to determine logical matches.
+
+relationships:
+  bet_slip:
+    table_id: southwell-infra.matchesodi.bet_slip
+    join_condition: bet_slip.parent_match_id = matches.parent_match_id
+    cardinality: Many selections to one deduplicated logical match.
+    rules:
+      - Deduplicate selections by bet_slip_id and matches by parent_match_id
+        before joining.
+      - Do not run distinct-match_id ambiguity checks.
+      - Use LEFT JOIN when enriching selections to preserve unmatched rows.
+      - Match enrichment must not multiply selection rows.
+
+  bet:
+    table_id: southwell-infra.matchesodi.bet
+    join_path: >
+      Join bet.bet_id to bet_slip.bet_id, then join
+      bet_slip.parent_match_id to matches.parent_match_id.
+    rules:
+      - No direct bet-to-match key is documented.
+      - A bet can contain multiple selections and matches.
+      - Do not sum repeated bet_amount after selection or match joins.
+      - Stakes grouped by match may overlap for multibets.
+      - Do not allocate stakes between matches without an agreed rule.
+
+partitioning:
+  status: No partition column appeared in the supplied schema.
+  rules:
+    - Do not reference _PARTITIONTIME.
+    - Use dry-run estimates and the configured billing cap.
+    - Do not assume a small result or LIMIT guarantees a small scan.
+
+time_filtering:
+  business_timezone: Africa/Nairobi
+  rules:
+    - Use start_time for current scheduled kickoff periods.
+    - Use bet.created for bet-placement periods.
+    - Use matches.created only for match-record creation questions.
+    - Do not restrict matches.created to the bet reporting period
+      when enriching bets or selections.
+    - Use start-inclusive and end-exclusive local DATETIME boundaries.
+    - Do not exclude newer versions before determining current match state.

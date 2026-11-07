@@ -1,0 +1,197 @@
+{
+  "request_id": "ed430f7d58574c84b234a82d415579c8",
+  "thread_id": "1a1221625c654a5c92914ad1044e5fa2",
+  "error": "Recursion limit of 12 reached without hitting a stop condition. You can increase the limit by setting the `recursion_limit` config key.\nFor troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT",
+  "messages": [
+    {
+      "type": "user",
+      "content": "For yesterday in Africa/Nairobi, retrieve the earliest 20 sportsbook selections by bet_slip.created, breaking ties by bet_slip_id. Join bet_slip to bet on bet_id and to matches on parent_match_id. Return bet_id, bet_slip_id, profile_id, bet_amount, outcome_name, odd_value, home_team, away_team, competition_name, start_time, and selection creation time. Deduplicate each source using latest modified per primary key. Before joining matches, check whether the relevant parent_match_id values map to multiple distinct match_id values; if they do, report the ambiguity instead of multiplying rows. Preserve unmatched selections with LEFT JOINs. Do not filter matches.created to yesterday. Export the results and include the executed SQL."
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "WITH deduplicated_slips AS (\n  SELECT\n    bet_slip_id,\n    bet_id,\n    profile_id,\n    parent_match_id,\n    outcome_name,\n    odd_value,\n    created AS selection_created_at\n  FROM `southwell-infra.matchesodi.bet_slip`\n  WHERE created >= DATETIME(DATE_SUB(CURRENT_DATE('Africa/Nairobi'), INTERVAL 1 DAY), TIME '00:00:00')\n    AND created < DATETIME(CURRENT_DATE('Africa/Nairobi'), TIME '00:00:00')\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_slip_id\n    ORDER BY modified DESC\n  ) = 1\n  ORDER BY created ASC, bet_slip_id ASC\n  LIMIT 20\n)\nSELECT * FROM deduplicated_slips\n"
+          },
+          "id": "call_780592",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 10110,
+        "output_tokens": 1347,
+        "total_tokens": 11457,
+        "input_token_details": {
+          "cache_read": 0
+        },
+        "output_token_details": {
+          "reasoning": 1127
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_780592",
+      "content": "{\"result_id\": \"5cedeb6de052404da631be018235ac94\", \"row_count\": 20, \"columns\": [\"bet_slip_id\", \"bet_id\", \"profile_id\", \"parent_match_id\", \"outcome_name\", \"odd_value\", \"selection_created_at\"], \"preview_rows\": [{\"bet_slip_id\": 10406587368, \"bet_id\": 1871307046, \"profile_id\": 6430916, \"parent_match_id\": 74173310, \"outcome_name\": \"over 2.5\", \"odd_value\": \"1.300000000\", \"selection_created_at\": \"2026-11-06T00:00:00.000\"}, {\"bet_slip_id\": 10406587369, \"bet_id\": 1871307046, \"profile_id\": 6430916, \"parent_match_id\": 74173296, \"outcome_name\": \"over 2.5\", \"odd_value\": \"1.220000000\", \"selection_created_at\": \"2026-11-06T00:00:00.000\"}, {\"bet_slip_id\": 10406587370, \"bet_id\": 1871307046, \"profile_id\": 6430916, \"parent_match_id\": 74173294, \"outcome_name\": \"over 1.5\", \"odd_value\": \"1.370000000\", \"selection_created_at\": \"2026-11-06T00:00:00.000\"}], \"preview_is_partial\": true, \"bytes_processed\": 900716743}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "WITH deduplicated_slips AS (\n  SELECT\n    bet_slip_id,\n    bet_id,\n    profile_id,\n    parent_match_id,\n    outcome_name,\n    odd_value,\n    created AS selection_created_at\n  FROM `southwell-infra.matchesodi.bet_slip`\n  WHERE created >= DATETIME(DATE_SUB(CURRENT_DATE('Africa/Nairobi'), INTERVAL 1 DAY), TIME '00:00:00')\n    AND created < DATETIME(CURRENT_DATE('Africa/Nairobi'), TIME '00:00:00')\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_slip_id\n    ORDER BY modified DESC\n  ) = 1\n  ORDER BY created ASC, bet_slip_id ASC\n  LIMIT 20\n),\nparent_match_ids AS (\n  SELECT DISTINCT parent_match_id FROM deduplicated_slips WHERE parent_match_id IS NOT NULL\n),\ndeduplicated_matches AS (\n  SELECT\n    match_id,\n    parent_match_id,\n    home_team,\n    away_team,\n    competition_name,\n    start_time\n  FROM `southwell-infra.matches.odi_bets_matche`\n  WHERE parent_match_id IN (SELECT parent_match_id FROM parent_match_ids)\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY match_id\n    ORDER BY modified DESC\n  ) = 1\n)\nSELECT\n  parent_match_id,\n  COUNT(DISTINCT match_id) AS distinct_matches,\n  ARRAY_AGG(match_id) AS match_ids\nFROM deduplicated_matches\nGROUP BY parent_match_id\nHAVING COUNT(DISTINCT match_id) > 1\n"
+          },
+          "id": "call_1082379",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 11846,
+        "output_tokens": 732,
+        "total_tokens": 12578,
+        "input_token_details": {
+          "cache_read": 8057
+        },
+        "output_token_details": {
+          "reasoning": 299
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_1082379",
+      "content": "{\"result_id\": \"d243f15a96ae446fbc1508d7961d3762\", \"row_count\": 1, \"columns\": [\"parent_match_id\", \"distinct_matches\", \"match_ids\"], \"preview_rows\": [{\"parent_match_id\": 74173296, \"distinct_matches\": 2, \"match_ids\": [659591522, 628747087]}], \"preview_is_partial\": false, \"bytes_processed\": 1453214768}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "SELECT\n  match_id,\n  parent_match_id,\n  home_team,\n  away_team,\n  competition_name,\n  start_time,\n  modified\nFROM `southwell-infra.matches.odi_bets_matche`\nWHERE parent_match_id = 74173296\nQUALIFY ROW_NUMBER() OVER (\n  PARTITION BY match_id\n  ORDER BY modified DESC\n) = 1\n"
+          },
+          "id": "call_1668782",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 12688,
+        "output_tokens": 676,
+        "total_tokens": 13364,
+        "input_token_details": {
+          "cache_read": 8036
+        },
+        "output_token_details": {
+          "reasoning": 555
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_1668782",
+      "content": "{\"result_id\": \"95bbad2c43554946aa13ff07d3b0f6b4\", \"row_count\": 2, \"columns\": [\"match_id\", \"parent_match_id\", \"home_team\", \"away_team\", \"competition_name\", \"start_time\", \"modified\"], \"preview_rows\": [{\"match_id\": 659591522, \"parent_match_id\": 74173296, \"home_team\": \"FC Copenhagen\", \"away_team\": \"FC Iberia 1999\", \"competition_name\": \"UEFA Europa Conference League\", \"start_time\": \"2026-11-05T23:00:00.000\", \"modified\": \"2026-11-05T23:44:33.000Z\"}, {\"match_id\": 628747087, \"parent_match_id\": 74173296, \"home_team\": \"FC Copenhagen\", \"away_team\": \"FC Iberia 1999\", \"competition_name\": \"UEFA Europa Conference League\", \"start_time\": \"2026-11-05T23:00:00.000\", \"modified\": \"2026-11-05T21:55:47.000Z\"}], \"preview_is_partial\": false, \"bytes_processed\": 3828222859}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "WITH deduplicated_slips AS (\n  SELECT\n    bet_slip_id,\n    bet_id,\n    profile_id,\n    parent_match_id,\n    outcome_name,\n    odd_value,\n    created AS selection_created_at\n  FROM `southwell-infra.matchesodi.bet_slip`\n  WHERE created >= DATETIME(DATE_SUB(CURRENT_DATE('Africa/Nairobi'), INTERVAL 1 DAY), TIME '00:00:00')\n    AND created < DATETIME(CURRENT_DATE('Africa/Nairobi'), TIME '00:00:00')\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_slip_id\n    ORDER BY modified DESC\n  ) = 1\n  ORDER BY created ASC, bet_slip_id ASC\n  LIMIT 20\n),\nbet_ids AS (\n  SELECT DISTINCT bet_id FROM deduplicated_slips WHERE bet_id IS NOT NULL\n),\ndeduplicated_bets AS (\n  SELECT\n    bet_id,\n    bet_amount\n  FROM `southwell-infra.matchesodi.bet`\n  WHERE (_PARTITIONTIME >= TIMESTAMP(DATE_SUB(CURRENT_DATE('Africa/Nairobi'), INTERVAL 7 DAY)) OR _PARTITIONTIME IS NULL)\n    AND bet_id IN (SELECT bet_id FROM bet_ids)\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_id\n    ORDER BY modified DESC\n  ) = 1\n)\nSELECT s.bet_slip_id, s.bet_id, b.bet_amount\nFROM deduplicated_slips s\nLEFT JOIN deduplicated_bets b ON s.bet_id = b.bet_id\n"
+          },
+          "id": "call_693445",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 13642,
+        "output_tokens": 1151,
+        "total_tokens": 14793,
+        "input_token_details": {
+          "cache_read": 7989
+        },
+        "output_token_details": {
+          "reasoning": 742
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_693445",
+      "content": "{\"result_id\": \"d8ce7684731e4c7bb2315c86e3ae1d8e\", \"row_count\": 20, \"columns\": [\"bet_slip_id\", \"bet_id\", \"bet_amount\"], \"preview_rows\": [{\"bet_slip_id\": 10406587368, \"bet_id\": 1871307046, \"bet_amount\": \"5.000000000\"}, {\"bet_slip_id\": 10406587369, \"bet_id\": 1871307046, \"bet_amount\": \"5.000000000\"}, {\"bet_slip_id\": 10406587370, \"bet_id\": 1871307046, \"bet_amount\": \"5.000000000\"}], \"preview_is_partial\": true, \"bytes_processed\": 486685856}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "WITH deduplicated_slips AS (\n  SELECT\n    bet_slip_id,\n    bet_id,\n    profile_id,\n    parent_match_id,\n    outcome_name,\n    odd_value,\n    created AS selection_created_at\n  FROM `southwell-infra.matchesodi.bet_slip`\n  WHERE created >= DATETIME(DATE_SUB(CURRENT_DATE('Africa/Nairobi'), INTERVAL 1 DAY), TIME '00:00:00')\n    AND created < DATETIME(CURRENT_DATE('Africa/Nairobi'), TIME '00:00:00')\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_slip_id\n    ORDER BY modified DESC\n  ) = 1\n  ORDER BY created ASC, bet_slip_id ASC\n  LIMIT 20\n),\ndeduplicated_bets AS (\n  SELECT\n    bet_id,\n    bet_amount\n  FROM `southwell-infra.matchesodi.bet`\n  WHERE (_PARTITIONTIME >= TIMESTAMP(DATE_SUB(CURRENT_DATE('Africa/Nairobi'), INTERVAL 7 DAY)) OR _PARTITIONTIME IS NULL)\n    AND bet_id IN (SELECT DISTINCT bet_id FROM deduplicated_slips WHERE bet_id IS NOT NULL)\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_id\n    ORDER BY modified DESC\n  ) = 1\n),\ndeduplicated_matches AS (\n  SELECT\n    match_id,\n    parent_match_id,\n    home_team,\n    away_team,\n    competition_name,\n    start_time\n  FROM `southwell-infra.matches.odi_bets_matche`\n  WHERE parent_match_id IN (SELECT DISTINCT parent_match_id FROM deduplicated_slips WHERE parent_match_id IS NOT NULL)\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY match_id\n    ORDER BY modified DESC\n  ) = 1\n),\nunambiguous_matches AS (\n  SELECT\n    parent_match_id,\n    ANY_VALUE(home_team) AS home_team,\n    ANY_VALUE(away_team) AS away_team,\n    ANY_VALUE(competition_name) AS competition_name,\n    ANY_VALUE(start_time) AS start_time\n  FROM deduplicated_matches\n  GROUP BY parent_match_id\n  HAVING COUNT(DISTINCT match_id) = 1\n)\nSELECT\n  s.bet_id,\n  s.bet_slip_id,\n  s.profile_id,\n  b.bet_amount,\n  s.outcome_name,\n  s.odd_value,\n  m.home_team,\n  m.away_team,\n  m.competition_name,\n  m.start_time,\n  s.selection_created_at\nFROM deduplicated_slips s\nLEFT JOIN deduplicated_bets b ON s.bet_id = b.bet_id\nLEFT JOIN unambiguous_matches m ON s.parent_match_id = m.parent_match_id\nORDER BY s.selection_created_at ASC, s.bet_slip_id ASC\n"
+          },
+          "id": "call_693610",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 14993,
+        "output_tokens": 1917,
+        "total_tokens": 16910,
+        "input_token_details": {
+          "cache_read": 11961
+        },
+        "output_token_details": {
+          "reasoning": 1169
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_693610",
+      "content": "{\"error\": \"Query exceeds the 30 GB allowance. Narrow the query.\", \"estimated_gb\": 35.699}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "SELECT\n  match_id,\n  parent_match_id,\n  home_team,\n  away_team,\n  competition_name,\n  start_time,\n  modified\nFROM `southwell-infra.matches.odi_bets_matche`\nLIMIT 1\n"
+          },
+          "id": "call_1243301",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 16934,
+        "output_tokens": 597,
+        "total_tokens": 17531,
+        "input_token_details": {
+          "cache_read": 11981
+        },
+        "output_token_details": {
+          "reasoning": 517
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_1243301",
+      "content": "{\"error\": \"Query exceeds the 30 GB allowance. Narrow the query.\", \"estimated_gb\": 34.083}"
+    }
+  ]
+}

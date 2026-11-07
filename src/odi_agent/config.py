@@ -1,13 +1,41 @@
 """Application configuration."""
 
 import os
-
+# Tbale settings
 PROJECT_ID = os.getenv("ODI_PROJECT_ID", "southwell-infra")
 
 TABLE_ID = os.getenv(
     "ODI_TABLE_ID",
     "southwell-infra.Odibets_Raw.odibets_transaction_new",
 )
+
+WITHDRAWAL_DLR = os.getenv(
+    "ODI_WITHDRAWAL_DLR",
+    "southwell-infra.Odibets_Raw.odibets_withdrawal_dlr",
+)
+
+PROFILE_TABLE_ID = os.getenv(
+    "ODI_PROFILE_TABLE_ID",
+    "southwell-infra.Odibets_Raw.odibets_profile",
+)
+DEPOSIT_TABLE_ID = os.getenv(
+    "ODI_DEPOSIT_TABLE_ID",
+    "southwell-infra.Odibets_Raw.odibets_mpesa_transaction",
+)
+BET_TABLE_ID = os.getenv(
+    "ODI_BET_TABLE_ID",
+    "southwell-infra.matchesodi.bet",
+)
+
+BET_SLIP_TABLE_ID = os.getenv(
+    "ODI_BET_SLIP_TABLE_ID",
+    "southwell-infra.matchesodi.bet_slip",
+)
+MATCH_TABLE_ID = os.getenv(
+    "ODI_MATCH_TABLE_ID",
+    "southwell-infra.matches.odi_bets_matche",
+)
+
 
 TIMEZONE = os.getenv("ODI_TIMEZONE", "Africa/Nairobi")
 MODEL_PROVIDER = os.getenv("ODI_MODEL_PROVIDER", "gemini_vertex")

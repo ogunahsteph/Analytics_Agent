@@ -1,0 +1,142 @@
+name: sportsbook_bet
+table_id: southwell-infra.matchesodi.bet
+
+purpose: >
+  Sportsbook bet-level records. Each bet contains a stake and may
+  contain one or several selections stored separately in bet_slip.
+
+grain: >
+  One logical record per bet_id after any required version deduplication.
+  Multiple raw versions must not be counted as separate bets.
+
+columns:
+  bet_id:
+    type: INT64
+    meaning: Primary bet identifier.
+    usage: Bet-level identity and join key to betslip selections.
+
+  profile_id:
+    type: INT64
+    meaning: Bettor identifier matching profiles.profile_id
+      and transaction_new.profile_id.
+
+  total_odd:
+    type: NUMERIC
+    meaning: Combined odds for the bet.
+    rules:
+      - For ordinary multibets, represents the product of selection odds.
+      - Do not assume identical calculations for special bet products
+        without verified rules.
+
+  bet_amount:
+    type: NUMERIC
+    meaning: Stake for the entire bet.
+    rules:
+      - Count once per deduplicated bet_id.
+      - Do not sum repeated stakes after joining to selections.
+
+  possible_win:
+    type: NUMERIC
+    meaning: Potential winnings field.
+    cautions:
+      - Not evidence of an actual settlement or payment.
+      - Treatment of stake, bonuses, and taxes is not yet documented.
+
+  total_games:
+    type: INT64
+    meaning: Number of selections in the bet.
+
+  status:
+    type: INT64
+    meaning: Bet state, such as won, lost, or ongoing.
+    rules:
+      - Status-code meanings will be supplied later.
+      - Do not invent codes or classify outcomes until mappings are verified.
+
+  created:
+    type: DATETIME
+    meaning: Bet creation time in Nairobi local time.
+    timezone: Africa/Nairobi
+
+  modified:
+    type: TIMESTAMP
+    meaning: Bet modification timestamp represented in UTC.
+
+  _PARTITIONTIME:
+    type: TIMESTAMP
+    meaning: Ingestion partition time in UTC.
+    cautions:
+      - Not bet placement or settlement time.
+      - Recently streamed records may have a NULL partition value.
+
+  datastream_metadata:
+    type: STRUCT
+    meaning: Technical streaming metadata.
+    usage: Exclude from business analysis and ordinary exports.
+
+other_columns:
+  - bet_message
+  - ticket_id
+  - bet_reference
+  - created_by
+  - mute
+  - attribution
+  - bet_type
+  - mts_ticket_signature
+
+other_column_rules:
+  - Detailed business meanings are not yet documented.
+  - Do not invent classifications from these fields.
+
+deduplication:
+  key: bet_id
+  proposed_order_by: modified DESC
+  status: Latest-version ordering requires confirmation.
+  rules:
+    - Do not count multiple versions of one bet as separate bets.
+    - Apply outcome filters after selecting the correct version.
+    - Do not invent tie-breakers for equal modified timestamps.
+
+relationships:
+  bet_slip:
+    table_id: southwell-infra.matchesodi.bet_slip
+    join_key: bet_id
+    cardinality: One bet to many selections.
+    rules:
+      - A selection-level join repeats bet-level columns.
+      - Aggregate bet stakes before joining, or use EXISTS when filtering
+        bets by selection attributes.
+      - Do not use SUM(DISTINCT bet_amount) to fix duplicated stakes;
+        different bets can have identical stake amounts.
+
+  transaction_new:
+    table_id: southwell-infra.Odibets_Raw.odibets_transaction_new
+    join_condition: bet.bet_id = transaction_new.reference_id
+    additional_identity_check: bet.profile_id = transaction_new.profile_id
+    rules:
+      - Restrict ledger records to verified sportsbook transaction labels
+        or reference types before matching.
+      - reference_id alone is not globally unique across products.
+      - One bet may have multiple ledger records, such as stake,
+        settlement, or reversal.
+      - Deduplicate each source before joining.
+      - Do not multiply bet stakes or settlement totals through joins.
+      - Exact sportsbook ledger classifications remain to be documented.
+
+  profiles:
+    table_id: southwell-infra.Odibets_Raw.odibets_profile
+    join_condition: bet.profile_id = profiles.profile_id
+    rules:
+      - Deduplicate profiles before enrichment.
+      - Do not restrict profile history to the bet reporting period.
+
+time_filtering:
+  business_timezone: Africa/Nairobi
+  placement_time_column: created
+  rules:
+    - Use Nairobi local DATETIME boundaries for bet placement periods.
+    - Apply appropriate bounded ingestion partition filters.
+    - Parenthesize partition conditions with OR _PARTITIONTIME IS NULL.
+    - Account for later updates to older bets.
+    - Placement date is not necessarily settlement date.
+    - modified is not a verified settlement timestamp.

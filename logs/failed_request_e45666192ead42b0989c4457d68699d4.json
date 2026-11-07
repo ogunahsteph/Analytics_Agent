@@ -1,0 +1,197 @@
+{
+  "request_id": "e45666192ead42b0989c4457d68699d4",
+  "thread_id": "fd8df5cfc921488286463e0707495fea",
+  "error": "Recursion limit of 12 reached without hitting a stop condition. You can increase the limit by setting the `recursion_limit` config key.\nFor troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT",
+  "messages": [
+    {
+      "type": "user",
+      "content": "For yesterday in Africa/Nairobi, retrieve the earliest 20 sportsbook selections by bet_slip.created, breaking ties by bet_slip_id. Join bet_slip to bet on bet_id and to matches on parent_match_id. Return bet_id, bet_slip_id, profile_id, bet_amount, outcome_name, odd_value, home_team, away_team, competition_name, start_time, and selection creation time. Deduplicate each source using latest modified per primary key. Before joining matches, check whether the relevant parent_match_id values map to multiple distinct match_id values; if they do, report the ambiguity instead of multiplying rows. Preserve unmatched selections with LEFT JOINs. Do not filter matches.created to yesterday. Export the results and include the executed SQL."
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "WITH target_period AS (\n  SELECT\n    DATETIME(DATE_SUB(CURRENT_DATE(\"Africa/Nairobi\"), INTERVAL 1 DAY), TIME '00:00:00') AS start_dt,\n    DATETIME(CURRENT_DATE(\"Africa/Nairobi\"), TIME '00:00:00') AS end_dt\n),\ndedup_selections AS (\n  SELECT\n    bet_slip_id,\n    bet_id,\n    profile_id,\n    parent_match_id,\n    outcome_name,\n    odd_value,\n    created\n  FROM `southwell-infra.matchesodi.bet_slip`, target_period\n  WHERE created >= start_dt AND created < end_dt\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_slip_id\n    ORDER BY modified DESC\n  ) = 1\n),\nearliest_20 AS (\n  SELECT *\n  FROM dedup_selections\n  ORDER BY created ASC, bet_slip_id ASC\n  LIMIT 20\n),\nmatch_check AS (\n  SELECT\n    parent_match_id,\n    COUNT(DISTINCT match_id) AS distinct_match_ids\n  FROM `southwell-infra.matches.odi_bets_matche`\n  WHERE parent_match_id IN (SELECT parent_match_id FROM earliest_20 WHERE parent_match_id IS NOT NULL)\n  GROUP BY parent_match_id\n)\nSELECT\n  e.parent_match_id,\n  m.distinct_match_ids\nFROM earliest_20 e\nLEFT JOIN match_check m ON e.parent_match_id = m.parent_match_id\nGROUP BY e.parent_match_id, m.distinct_match_ids\n"
+          },
+          "id": "call_16322541081752809558",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 10331,
+        "output_tokens": 1582,
+        "total_tokens": 11913,
+        "input_token_details": {
+          "cache_read": 0
+        },
+        "output_token_details": {
+          "reasoning": 1162
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_16322541081752809558",
+      "content": "{\"result_id\": \"8851f300ec574dc186922a90898c5b39\", \"row_count\": 17, \"columns\": [\"parent_match_id\", \"distinct_match_ids\"], \"preview_rows\": [{\"parent_match_id\": 74173056, \"distinct_match_ids\": 1}, {\"parent_match_id\": 74173042, \"distinct_match_ids\": 1}, {\"parent_match_id\": 74173040, \"distinct_match_ids\": 1}], \"preview_is_partial\": true, \"bytes_processed\": 1097469056}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "WITH target_period AS (\n  SELECT\n    DATETIME(DATE_SUB(CURRENT_DATE(\"Africa/Nairobi\"), INTERVAL 1 DAY), TIME '00:00:00') AS start_dt,\n    DATETIME(CURRENT_DATE(\"Africa/Nairobi\"), TIME '00:00:00') AS end_dt\n),\ndedup_selections AS (\n  SELECT\n    bet_slip_id,\n    bet_id,\n    profile_id,\n    parent_match_id,\n    outcome_name,\n    odd_value,\n    created AS selection_created\n  FROM `southwell-infra.matchesodi.bet_slip`, target_period\n  WHERE created >= start_dt AND created < end_dt\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_slip_id\n    ORDER BY modified DESC\n  ) = 1\n),\nearliest_20 AS (\n  SELECT *\n  FROM dedup_selections\n  ORDER BY selection_created ASC, bet_slip_id ASC\n  LIMIT 20\n),\ndedup_bets AS (\n  SELECT\n    bet_id,\n    bet_amount\n  FROM `southwell-infra.matchesodi.bet`\n  WHERE (_PARTITIONTIME >= TIMESTAMP_SUB(TIMESTAMP(CURRENT_DATE(\"Africa/Nairobi\")), INTERVAL 7 DAY)\n         OR _PARTITIONTIME IS NULL)\n    AND bet_id IN (SELECT bet_id FROM earliest_20)\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_id\n    ORDER BY modified DESC\n  ) = 1\n),\ndedup_matches AS (\n  SELECT\n    parent_match_id,\n    home_team,\n    away_team,\n    competition_name,\n    start_time\n  FROM `southwell-infra.matches.odi_bets_matche`\n  WHERE parent_match_id IN (SELECT parent_match_id FROM earliest_20 WHERE parent_match_id IS NOT NULL)\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY parent_match_id\n    ORDER BY modified DESC\n  ) = 1\n)\nSELECT\n  e.bet_id,\n  e.bet_slip_id,\n  e.profile_id,\n  b.bet_amount,\n  e.outcome_name,\n  e.odd_value,\n  m.home_team,\n  m.away_team,\n  m.competition_name,\n  m.start_time,\n  e.selection_created\nFROM earliest_20 e\nLEFT JOIN dedup_bets b ON e.bet_id = b.bet_id\nLEFT JOIN dedup_matches m ON e.parent_match_id = m.parent_match_id\nORDER BY e.selection_created ASC, e.bet_slip_id ASC\n"
+          },
+          "id": "call_10199082894607931935",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 12042,
+        "output_tokens": 1237,
+        "total_tokens": 13279,
+        "input_token_details": {
+          "cache_read": 8101
+        },
+        "output_token_details": {
+          "reasoning": 566
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_10199082894607931935",
+      "content": "{\"error\": \"Query exceeds the 30 GB allowance. Narrow the query.\", \"estimated_gb\": 32.752}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "WITH target_period AS (\n  SELECT\n    DATETIME(DATE_SUB(CURRENT_DATE(\"Africa/Nairobi\"), INTERVAL 1 DAY), TIME '00:00:00') AS start_dt,\n    DATETIME(CURRENT_DATE(\"Africa/Nairobi\"), TIME '00:00:00') AS end_dt\n),\ndedup_selections AS (\n  SELECT\n    bet_slip_id,\n    bet_id,\n    profile_id,\n    parent_match_id,\n    outcome_name,\n    odd_value,\n    created AS selection_created\n  FROM `southwell-infra.matchesodi.bet_slip`, target_period\n  WHERE created >= start_dt AND created < end_dt\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_slip_id\n    ORDER BY modified DESC\n  ) = 1\n),\nearliest_20 AS (\n  SELECT *\n  FROM dedup_selections\n  ORDER BY selection_created ASC, bet_slip_id ASC\n  LIMIT 20\n),\ndedup_bets AS (\n  SELECT\n    bet_id,\n    bet_amount\n  FROM `southwell-infra.matchesodi.bet`\n  WHERE ((_PARTITIONTIME >= TIMESTAMP(DATE_SUB(CURRENT_DATE(\"Africa/Nairobi\"), INTERVAL 2 DAY), \"UTC\")\n      AND _PARTITIONTIME < TIMESTAMP_ADD(TIMESTAMP(CURRENT_DATE(\"Africa/Nairobi\"), \"UTC\"), INTERVAL 1 DAY))\n      OR _PARTITIONTIME IS NULL)\n    AND bet_id IN (SELECT bet_id FROM earliest_20)\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY bet_id\n    ORDER BY modified DESC\n  ) = 1\n),\ndedup_matches AS (\n  SELECT\n    parent_match_id,\n    home_team,\n    away_team,\n    competition_name,\n    start_time\n  FROM `southwell-infra.matches.odi_bets_matche`\n  WHERE parent_match_id IN (SELECT parent_match_id FROM earliest_20 WHERE parent_match_id IS NOT NULL)\n  QUALIFY ROW_NUMBER() OVER (\n    PARTITION BY parent_match_id\n    ORDER BY modified DESC\n  ) = 1\n)\nSELECT\n  e.bet_id,\n  e.bet_slip_id,\n  e.profile_id,\n  b.bet_amount,\n  e.outcome_name,\n  e.odd_value,\n  m.home_team,\n  m.away_team,\n  m.competition_name,\n  m.start_time,\n  e.selection_created\nFROM earliest_20 e\nLEFT JOIN dedup_bets b ON e.bet_id = b.bet_id\nLEFT JOIN dedup_matches m ON e.parent_match_id = m.parent_match_id\nORDER BY e.selection_created ASC, e.bet_slip_id ASC\n"
+          },
+          "id": "call_15633669247231133831",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 13303,
+        "output_tokens": 1084,
+        "total_tokens": 14387,
+        "input_token_details": {
+          "cache_read": 10119
+        },
+        "output_token_details": {
+          "reasoning": 378
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_15633669247231133831",
+      "content": "{\"error\": \"Query exceeds the 30 GB allowance. Narrow the query.\", \"estimated_gb\": 32.223}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "SELECT bet_id, bet_amount\nFROM `southwell-infra.matchesodi.bet`\nWHERE _PARTITIONTIME >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 2 DAY)\nLIMIT 1\n"
+          },
+          "id": "call_6423204964155870638",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 14411,
+        "output_tokens": 330,
+        "total_tokens": 14741,
+        "input_token_details": {
+          "cache_read": 12133
+        },
+        "output_token_details": {
+          "reasoning": 268
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_6423204964155870638",
+      "content": "{\"result_id\": \"f2b5985b01124fcbbd2fdf2b8ff12336\", \"row_count\": 1, \"columns\": [\"bet_id\", \"bet_amount\"], \"preview_rows\": [{\"bet_id\": 1870756303, \"bet_amount\": \"50.000000000\"}], \"preview_is_partial\": false, \"bytes_processed\": 145708752}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "SELECT bet_id, bet_amount\nFROM `southwell-infra.matchesodi.bet`\nWHERE (_PARTITIONTIME >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 2 DAY) OR _PARTITIONTIME IS NULL)\nLIMIT 1\n"
+          },
+          "id": "call_4402641561057869567",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 14833,
+        "output_tokens": 293,
+        "total_tokens": 15126,
+        "input_token_details": {
+          "cache_read": 12103
+        },
+        "output_token_details": {
+          "reasoning": 223
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_4402641561057869567",
+      "content": "{\"result_id\": \"874275eba7584bfeaa2cbb99a2d46a3b\", \"row_count\": 1, \"columns\": [\"bet_id\", \"bet_amount\"], \"preview_rows\": [{\"bet_id\": 1870435553, \"bet_amount\": \"150.000000000\"}], \"preview_is_partial\": false, \"bytes_processed\": 145708752}"
+    },
+    {
+      "type": "assistant",
+      "content": [],
+      "tool_calls": [
+        {
+          "name": "query_bigquery",
+          "args": {
+            "sql": "SELECT bet_id, bet_amount\nFROM `southwell-infra.matchesodi.bet`\nWHERE (_PARTITIONTIME >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 3 DAY) OR _PARTITIONTIME IS NULL)\n  AND bet_id IN (1870756303, 1870435553)\nQUALIFY ROW_NUMBER() OVER (\n  PARTITION BY bet_id\n  ORDER BY modified DESC\n) = 1\n"
+          },
+          "id": "call_10596061716902277499",
+          "type": "tool_call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 15218,
+        "output_tokens": 629,
+        "total_tokens": 15847,
+        "input_token_details": {
+          "cache_read": 12074
+        },
+        "output_token_details": {
+          "reasoning": 504
+        }
+      }
+    },
+    {
+      "type": "tool_result",
+      "name": "query_bigquery",
+      "tool_call_id": "call_10596061716902277499",
+      "content": "{\"result_id\": \"e22967cf79d748c39ce7a4e361fe00be\", \"row_count\": 2, \"columns\": [\"bet_id\", \"bet_amount\"], \"preview_rows\": [{\"bet_id\": 1870435553, \"bet_amount\": \"150.000000000\"}, {\"bet_id\": 1870756303, \"bet_amount\": \"50.000000000\"}], \"preview_is_partial\": false, \"bytes_processed\": 184271648}"
+    }
+  ]
+}

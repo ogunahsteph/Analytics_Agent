@@ -1,0 +1,124 @@
+name: withdrawal_dlr
+table_id: southwell-infra.Odibets_Raw.odibets_withdrawal_dlr
+
+purpose: >
+  Withdrawal delivery records containing payment outcomes and
+  M-Pesa withdrawal references. Use this table to establish whether
+  a withdrawal succeeded rather than inferring success from the ledger.
+
+grain: >
+  A raw record is a version of a withdrawal delivery record.
+  The raw table is not deduplicated.
+
+columns:
+  withdrawal_dlr_id:
+    type: INT64
+    meaning: Primary identifier of a withdrawal delivery record.
+    usage: Deduplication key.
+
+  transaction_id:
+    type: INT64
+    meaning: Transaction identifier matching transaction_new.transaction_id.
+    usage: Join to transaction_new for profile_id, amount, and ledger details.
+
+  withdraw_reference:
+    type: STRING
+    meaning: M-Pesa withdrawal reference.
+
+  status:
+    type: STRING
+    meaning: Withdrawal outcome code.
+    verified_values:
+      "0": Successful withdrawal
+    rules:
+      - Compare success using status = '0'.
+      - Other status meanings have not yet been documented.
+      - Do not automatically classify every nonzero or NULL status as failure.
+
+  description:
+    type: STRING
+    meaning: Description containing a phone number and two names.
+    cautions:
+      - Contains personal information.
+      - Do not assume a fixed format or name order.
+      - Include only when relevant to the request.
+
+  status_desc:
+    type: STRING
+    meaning: Status description; detailed mappings are not yet documented.
+
+  b2c_balance:
+    type: STRING
+    meaning: Business definition not yet confirmed.
+    cautions:
+      - Do not interpret as the withdrawal amount or bettor wallet balance.
+
+  created:
+    type: DATETIME
+    meaning: Transaction creation date and time in Nairobi local time.
+    timezone: Africa/Nairobi
+    rules:
+      - Compare directly with Nairobi local DATETIME boundaries.
+      - Do not add three hours or interpret as UTC.
+
+  modified:
+    type: TIMESTAMP
+    meaning: Record modification time, represented in UTC.
+    usage: Order versions when applying the agreed deduplication rule.
+
+  _PARTITIONTIME:
+    type: TIMESTAMP
+    meaning: Ingestion partition time in UTC.
+    cautions:
+      - Not the transaction creation time.
+      - Recently streamed records may have a NULL partition value.
+
+  datastream_metadata:
+    type: STRUCT
+    meaning: Technical streaming metadata.
+    usage: Exclude from business analysis and ordinary exports.
+
+deduplication:
+  key: withdrawal_dlr_id
+  latest_version_order: modified DESC
+  latest_version_order_status: Pending confirmation
+  rules:
+    - Deduplication is required before analysis or joins.
+    - Apply status filters after selecting the latest record version.
+    - Do not assume DISTINCT removes conflicting record versions.
+    - Confirm version ordering before finalising deduplication SQL.
+
+relationships:
+  transaction_new:
+    table_id: southwell-infra.Odibets_Raw.odibets_transaction_new
+    join_condition: withdrawal_dlr.transaction_id = transaction_new.transaction_id
+    provides:
+      - profile_id
+      - amount
+      - Ledger transaction details
+    cardinality_status: Not yet confirmed
+    rules:
+      - Deduplicate both tables before joining.
+      - Multiple distinct withdrawal_dlr_id values per transaction_id
+        have not yet been ruled out.
+      - Avoid multiplying transaction amounts when joining.
+      - For ledger totals restricted to successful withdrawals,
+        consider EXISTS against qualifying DLR records rather than
+        a join that could multiply rows.
+
+time_filtering:
+  business_timezone: Africa/Nairobi
+  transaction_time_column: created
+  rules:
+    - Use start-inclusive and end-exclusive transaction-time boundaries.
+    - Apply bounded ingestion partition filters before deduplication.
+    - Align partition bounds with the actual partition granularity.
+    - Parenthesize partition conditions with OR _PARTITIONTIME IS NULL.
+    - Account for later-arriving status updates when choosing ingestion bounds.
+    - Do not claim a narrow ingestion window guarantees the latest status.
+
+analysis_rules:
+  - This table has no dedicated amount or profile_id column.
+  - Obtain withdrawal amounts and profile IDs through transaction_new.
+  - Use status = '0' when successful withdrawals are requested.
+  - Do not invent mappings for other statuses.
